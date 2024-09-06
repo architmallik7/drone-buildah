@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,12 +64,23 @@ type (
 	}
 )
 
+func ensureDir(dir string) error {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("Error creating directory %s: %s", dir, err)
+	}
+	return nil
+}
+
 // Exec executes the plugin step
 func (p Plugin) Exec() error {
 	// Create Auth Config File
 	if p.Login.Config != "" {
-		// Use home directory for rootless mode
-		root := filepath.Join(os.Getenv("HOME"), ".local/share/containers/auth")
+		user, err := user.Current()
+		if err != nil {
+			return fmt.Errorf("Error getting the current user: %s", err)
+		}
+
+		root := fmt.Sprintf("/var/tmp/%s/containers/containers/", user.Uid)
 		if err := os.MkdirAll(root, 0777); err != nil {
 			return fmt.Errorf("Error writing runtime dir: %s", err)
 		}
@@ -76,6 +88,10 @@ func (p Plugin) Exec() error {
 		path := filepath.Join(root, "auth.json")
 		if err := ioutil.WriteFile(path, []byte(p.Login.Config), 0600); err != nil {
 			return fmt.Errorf("Error writing auth.json: %s", err)
+		}
+
+		if err := ensureDir(filepath.Dir(path)); err != nil {
+			return err
 		}
 
 		fmt.Printf("Config written to %s\n", path)
@@ -194,7 +210,7 @@ func commandInfo() *exec.Cmd {
 func commandBuild(build Build) *exec.Cmd {
 	args := []string{
 		"bud",
-		"--storage-driver", "fuse-overlayfs",
+		"--storage-driver", "vfs",
 		"-f", build.Dockerfile,
 	}
 
@@ -331,15 +347,13 @@ func commandTag(build Build, tag string) *exec.Cmd {
 		source = build.Name
 		target = fmt.Sprintf("%s:%s", build.Repo, tag)
 	)
-	return exec.Command(
-		buildahExe, "tag", "--storage-driver", "vfs", source, target,
-	)
+	return exec.Command(buildahExe, "tag", source, target)
 }
 
 // helper function to create the docker push command.
 func commandPush(build Build, tag string) *exec.Cmd {
 	target := fmt.Sprintf("%s:%s", build.Repo, tag)
-	return exec.Command(buildahExe, "push", "--storage-driver", "vfs", target)
+	return exec.Command(buildahExe, "push", target)
 }
 
 // helper to check if args match "docker prune"
@@ -353,11 +367,20 @@ func isCommandRmi(args []string) bool {
 }
 
 func commandRmi(tag string) *exec.Cmd {
-	return exec.Command(buildahExe, "--storage-driver", "vfs", "rmi", tag)
+	return exec.Command(buildahExe, "rmi", tag)
 }
 
 // trace writes each command to stdout with the command wrapped in an xml
 // tag so that it can be extracted and displayed in the logs.
 func trace(cmd *exec.Cmd) {
 	fmt.Fprintf(os.Stdout, "+ %s\n", strings.Join(cmd.Args, " "))
+	fmt.Fprintf(os.Stdout, "Current directory: %s\n", cmd.Dir)
+	if cmd.Dir != "" {
+		info, err := os.Stat(cmd.Dir)
+		if err != nil {
+			fmt.Fprintf(os.Stdout, "Error statting directory: %s\n", err)
+		} else {
+			fmt.Fprintf(os.Stdout, "Directory info: %s\n", info)
+		}
+	}
 }
