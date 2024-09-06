@@ -5,7 +5,6 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -68,11 +67,8 @@ type (
 func (p Plugin) Exec() error {
 	// Create Auth Config File
 	if p.Login.Config != "" {
-		user, err := user.Current()
-		if err != nil {
-			return fmt.Errorf("Error getting the current user: %s", err)
-		}
-		root := fmt.Sprintf("/var/tmp/%s/containers/containers/", user.Uid)
+		// Use home directory for rootless mode
+		root := filepath.Join(os.Getenv("HOME"), ".local/share/containers/auth")
 		if err := os.MkdirAll(root, 0777); err != nil {
 			return fmt.Errorf("Error writing runtime dir: %s", err)
 		}
@@ -198,7 +194,7 @@ func commandInfo() *exec.Cmd {
 func commandBuild(build Build) *exec.Cmd {
 	args := []string{
 		"bud",
-		"--storage-driver", "vfs",
+		"--storage-driver", "fuse-overlayfs",
 		"-f", build.Dockerfile,
 	}
 
