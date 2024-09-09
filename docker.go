@@ -196,14 +196,10 @@ func commandInfo() *exec.Cmd {
 
 // helper function to create the docker build command.
 func commandBuild(build Build) *exec.Cmd {
-	// Set storage paths in the user's home directory
-	rootPath := filepath.Join(os.Getenv("HOME"), ".local", "share", "containers", "storage")
-	runRootPath := filepath.Join(os.Getenv("HOME"), ".local", "run", "containers")
 	args := []string{
 		"bud",
 		"--storage-driver", "vfs",
-		"--root", rootPath,
-		"--runroot", runRootPath,
+		"--security-opt", "apparmor=unconfined",
 		"-f", build.Dockerfile,
 	}
 
@@ -336,23 +332,19 @@ func hasProxyBuildArg(build *Build, key string) bool {
 
 // helper function to create the docker tag command.
 func commandTag(build Build, tag string) *exec.Cmd {
-	rootPath := filepath.Join(os.Getenv("HOME"), ".local", "share", "containers", "storage")
-	runRootPath := filepath.Join(os.Getenv("HOME"), ".local", "run", "containers")
 	var (
 		source = build.Name
 		target = fmt.Sprintf("%s:%s", build.Repo, tag)
 	)
 	return exec.Command(
-		buildahExe, "tag", "--storage-driver", "vfs", "--root", rootPath, "--runroot", runRootPath, source, target,
+		buildahExe, "tag", "--storage-driver", "vfs", "--security-opt", "apparmor=unconfined", source, target,
 	)
 }
 
 // helper function to create the docker push command.
 func commandPush(build Build, tag string) *exec.Cmd {
-	rootPath := filepath.Join(os.Getenv("HOME"), ".local", "share", "containers", "storage")
-	runRootPath := filepath.Join(os.Getenv("HOME"), ".local", "run", "containers")
 	target := fmt.Sprintf("%s:%s", build.Repo, tag)
-	return exec.Command(buildahExe, "push", "--storage-driver", "vfs", "--root", rootPath, "--runroot", runRootPath, target)
+	return exec.Command(buildahExe, "push", "--storage-driver", "vfs", "--security-opt", "apparmor=unconfined", target)
 }
 
 // helper to check if args match "docker prune"
