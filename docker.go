@@ -57,10 +57,11 @@ type (
 
 	// Plugin defines the Docker plugin parameters.
 	Plugin struct {
-		Login   Login // Docker login configuration
-		Build   Build // Docker build configuration
-		Dryrun  bool  // Docker push is skipped
-		Cleanup bool  // Docker purge is enabled
+		Login    Login // Docker login configuration
+		Build    Build // Docker build configuration
+		Dryrun   bool  // Docker push is skipped
+		Cleanup  bool  // Docker purge is enabled
+		SkipPush bool  // Docker push is skipped if true
 	}
 )
 
@@ -70,16 +71,16 @@ func (p Plugin) Exec() error {
 	if p.Login.Config != "" {
 		user, err := user.Current()
 		if err != nil {
-			return fmt.Errorf("Error getting the current user: %s", err)
+			return fmt.Errorf("error getting the current user: %s", err)
 		}
-		root := fmt.Sprintf("/var/tmp/%s/containers/containers/", user.Uid)
-		if err := os.MkdirAll(root, 0777); err != nil {
-			return fmt.Errorf("Error writing runtime dir: %s", err)
+		root := filepath.Join(user.HomeDir, ".config", "containers")
+		if err := os.MkdirAll(root, 0700); err != nil {
+			return fmt.Errorf("error creating config dir: %s", err)
 		}
 
 		path := filepath.Join(root, "auth.json")
 		if err := ioutil.WriteFile(path, []byte(p.Login.Config), 0600); err != nil {
-			return fmt.Errorf("Error writing auth.json: %s", err)
+			return fmt.Errorf("error writing auth.json: %s", err)
 		}
 
 		fmt.Printf("Config written to %s\n", path)
@@ -92,7 +93,7 @@ func (p Plugin) Exec() error {
 		cmd.Stderr = os.Stderr
 		err := cmd.Run()
 		if err != nil {
-			return fmt.Errorf("Error authenticating: %s", err)
+			return fmt.Errorf("error authenticating: %s", err)
 		}
 	}
 
@@ -119,16 +120,18 @@ func (p Plugin) Exec() error {
 
 	cmds = append(cmds, commandBuild(p.Build)) // docker build
 
-	for _, tag := range p.Build.Tags {
-		cmds = append(cmds, commandTag(p.Build, tag)) // docker tag
+	cmds = append(cmds, commandBuild(p.Build))
 
-		if p.Dryrun == false {
-			cmds = append(cmds, commandPush(p.Build, tag)) // docker push
+	for _, tag := range p.Build.Tags {
+		cmds = append(cmds, commandTag(p.Build, tag))
+
+		if !p.SkipPush {
+			cmds = append(cmds, commandPush(p.Build, tag))
 		}
 	}
 
 	if p.Cleanup {
-		cmds = append(cmds, commandRmi(p.Build.Name)) // buildah rmi
+		cmds = append(cmds, commandRmi(p.Build.Name))
 	}
 
 	// execute all commands in batch mode.
@@ -138,14 +141,16 @@ func (p Plugin) Exec() error {
 		trace(cmd)
 
 		err := cmd.Run()
-		if err != nil && isCommandPull(cmd.Args) {
-			fmt.Printf("Could not pull cache-from image %s. Ignoring...\n", cmd.Args[2])
-		} else if err != nil && isCommandPrune(cmd.Args) {
-			fmt.Printf("Could not prune system containers. Ignoring...\n")
-		} else if err != nil && isCommandRmi(cmd.Args) {
-			fmt.Printf("Could not remove image %s. Ignoring...\n", cmd.Args[2])
-		} else if err != nil {
-			return err
+		if err != nil {
+			if isCommandPull(cmd.Args) {
+				fmt.Printf("Could not pull cache-from image %s. Ignoring...\n", cmd.Args[2])
+			} else if isCommandPrune(cmd.Args) {
+				fmt.Printf("Could not prune system containers. Ignoring...\n")
+			} else if isCommandRmi(cmd.Args) {
+				fmt.Printf("Could not remove image %s. Ignoring...\n", cmd.Args[2])
+			} else {
+				return err
+			}
 		}
 	}
 
@@ -198,8 +203,7 @@ func commandInfo() *exec.Cmd {
 func commandBuild(build Build) *exec.Cmd {
 	args := []string{
 		"bud",
-		"--storage-driver", "vfs",
-		"--security-opt", "apparmor=unconfined",
+		"--format", "docker",
 		"-f", build.Dockerfile,
 	}
 
@@ -336,15 +340,13 @@ func commandTag(build Build, tag string) *exec.Cmd {
 		source = build.Name
 		target = fmt.Sprintf("%s:%s", build.Repo, tag)
 	)
-	return exec.Command(
-		buildahExe, "tag", "--storage-driver", "vfs", "--security-opt", "apparmor=unconfined", source, target,
-	)
+	return exec.Command(buildahExe, "tag", source, target)
 }
 
 // helper function to create the docker push command.
 func commandPush(build Build, tag string) *exec.Cmd {
 	target := fmt.Sprintf("%s:%s", build.Repo, tag)
-	return exec.Command(buildahExe, "push", "--storage-driver", "vfs", "--security-opt", "apparmor=unconfined", target)
+	return exec.Command(buildahExe, "push", target)
 }
 
 // helper to check if args match "docker prune"
@@ -358,7 +360,7 @@ func isCommandRmi(args []string) bool {
 }
 
 func commandRmi(tag string) *exec.Cmd {
-	return exec.Command(buildahExe, "--storage-driver", "vfs", "rmi", tag)
+	return exec.Command(buildahExe, "rmi", tag)
 }
 
 // trace writes each command to stdout with the command wrapped in an xml
