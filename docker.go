@@ -66,27 +66,39 @@ type (
 
 // Exec executes the plugin step
 func (p Plugin) Exec() error {
+	// Set up custom storage configuration for rootless mode
+	user, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("error getting current user: %s", err)
+	}
+
+	storageConfDir := filepath.Join(user.HomeDir, ".config", "containers")
+	if err := os.MkdirAll(storageConfDir, 0700); err != nil {
+		return fmt.Errorf("error creating storage config directory: %s", err)
+	}
+
+	storageConfPath := filepath.Join(storageConfDir, "storage.conf")
+	storageConf := `[storage]
+	driver = "vfs"
+	runroot = "/tmp/buildah-run-$(id -u)"
+	graphroot = "/tmp/buildah-graph-$(id -u)"`
+
+	if err := ioutil.WriteFile(storageConfPath, []byte(storageConf), 0600); err != nil {
+		return fmt.Errorf("error writing storage.conf: %s", err)
+	}
+
 	// Set environment variables for rootless mode
 	os.Setenv("STORAGE_DRIVER", "vfs")
 	os.Setenv("BUILDAH_ISOLATION", "rootless")
+	os.Setenv("CONTAINERS_STORAGE_CONF", storageConfPath)
 
 	// Create Auth Config File
 	if p.Login.Config != "" {
-		user, err := user.Current()
-		if err != nil {
-			return fmt.Errorf("error getting the current user: %s", err)
-		}
-		root := filepath.Join(user.HomeDir, ".config", "containers")
-		if err := os.MkdirAll(root, 0700); err != nil {
-			return fmt.Errorf("error creating config dir: %s", err)
-		}
-
-		path := filepath.Join(root, "auth.json")
-		if err := ioutil.WriteFile(path, []byte(p.Login.Config), 0600); err != nil {
+		authPath := filepath.Join(storageConfDir, "auth.json")
+		if err := ioutil.WriteFile(authPath, []byte(p.Login.Config), 0600); err != nil {
 			return fmt.Errorf("error writing auth.json: %s", err)
 		}
-
-		fmt.Printf("Config written to %s\n", path)
+		fmt.Printf("Config written to %s\n", authPath)
 	}
 
 	// login to the Docker registry
@@ -187,7 +199,6 @@ func commandBuild(build Build) *exec.Cmd {
 	args := []string{
 		"bud",
 		"--format", "docker",
-		"--storage-driver", "vfs",
 		"-f", build.Dockerfile,
 	}
 
@@ -317,12 +328,16 @@ func commandTag(build Build, tag string) *exec.Cmd {
 		source = build.Name
 		target = fmt.Sprintf("%s:%s", build.Repo, tag)
 	)
-	return exec.Command(buildahExe, "tag", "--storage-driver", "vfs", source, target)
+	return exec.Command(buildahExe, "tag", source, target)
 }
 
 func commandPush(build Build, tag string) *exec.Cmd {
 	target := fmt.Sprintf("%s:%s", build.Repo, tag)
-	return exec.Command(buildahExe, "push", "--storage-driver", "vfs", target)
+	return exec.Command(buildahExe, "push", target)
+}
+
+func commandRmi(tag string) *exec.Cmd {
+	return exec.Command(buildahExe, "rmi", tag)
 }
 
 func isCommandPrune(args []string) bool {
@@ -331,10 +346,6 @@ func isCommandPrune(args []string) bool {
 
 func isCommandRmi(args []string) bool {
 	return len(args) > 2 && args[1] == "rmi"
-}
-
-func commandRmi(tag string) *exec.Cmd {
-	return exec.Command(buildahExe, "rmi", "--storage-driver", "vfs", tag)
 }
 
 func trace(cmd *exec.Cmd) {
