@@ -35,7 +35,7 @@ type (
 		Target      string   // Docker build target
 		Squash      bool     // Docker build squash
 		Pull        bool     // Docker build pull
-		CacheFrom   []string // Docker build cache-from. It is a NOOP in buildah
+		CacheFrom   []string // Docker build cache-from
 		Compress    bool     // Docker build compress
 		Repo        string   // Docker build repository
 		LabelSchema []string // label-schema Label map
@@ -59,14 +59,17 @@ type (
 	Plugin struct {
 		Login    Login // Docker login configuration
 		Build    Build // Docker build configuration
-		Dryrun   bool  // Docker push is skipped
-		Cleanup  bool  // Docker purge is enabled
 		SkipPush bool  // Docker push is skipped if true
+		Cleanup  bool  // Docker purge is enabled
 	}
 )
 
 // Exec executes the plugin step
 func (p Plugin) Exec() error {
+	// Set environment variables for rootless mode
+	os.Setenv("STORAGE_DRIVER", "vfs")
+	os.Setenv("BUILDAH_ISOLATION", "rootless")
+
 	// Create Auth Config File
 	if p.Login.Config != "" {
 		user, err := user.Current()
@@ -110,15 +113,13 @@ func (p Plugin) Exec() error {
 	addProxyBuildArgs(&p.Build)
 
 	var cmds []*exec.Cmd
-	cmds = append(cmds, commandVersion()) // docker version
-	cmds = append(cmds, commandInfo())    // docker info
+	cmds = append(cmds, commandVersion())
+	cmds = append(cmds, commandInfo())
 
 	// pre-pull cache images
 	for _, img := range p.Build.CacheFrom {
 		cmds = append(cmds, commandPull(img))
 	}
-
-	cmds = append(cmds, commandBuild(p.Build)) // docker build
 
 	cmds = append(cmds, commandBuild(p.Build))
 
@@ -157,11 +158,7 @@ func (p Plugin) Exec() error {
 	return nil
 }
 
-// helper function to create the docker login command.
 func commandLogin(login Login) *exec.Cmd {
-	if login.Email != "" {
-		return commandLoginEmail(login)
-	}
 	return exec.Command(
 		buildahExe, "login",
 		"-u", login.Username,
@@ -170,40 +167,27 @@ func commandLogin(login Login) *exec.Cmd {
 	)
 }
 
-// helper to check if args match "docker pull <image>"
 func isCommandPull(args []string) bool {
 	return len(args) > 2 && args[1] == "pull"
 }
 
 func commandPull(repo string) *exec.Cmd {
-	return exec.Command(buildahExe, "pull", repo)
+	return exec.Command(buildahExe, "pull", "--storage-driver", "vfs", repo)
 }
 
-func commandLoginEmail(login Login) *exec.Cmd {
-	return exec.Command(
-		buildahExe, "login",
-		"-u", login.Username,
-		"-p", login.Password,
-		"-e", login.Email,
-		login.Registry,
-	)
-}
-
-// helper function to create the docker info command.
 func commandVersion() *exec.Cmd {
 	return exec.Command(buildahExe, "version")
 }
 
-// helper function to create the docker info command.
 func commandInfo() *exec.Cmd {
 	return exec.Command(buildahExe, "info")
 }
 
-// helper function to create the docker build command.
 func commandBuild(build Build) *exec.Cmd {
 	args := []string{
 		"bud",
 		"--format", "docker",
+		"--storage-driver", "vfs",
 		"-f", build.Dockerfile,
 	}
 
@@ -291,14 +275,12 @@ func commandBuild(build Build) *exec.Cmd {
 	return exec.Command(buildahExe, args...)
 }
 
-// helper function to add proxy values from the environment
 func addProxyBuildArgs(build *Build) {
 	addProxyValue(build, "http_proxy")
 	addProxyValue(build, "https_proxy")
 	addProxyValue(build, "no_proxy")
 }
 
-// helper function to add the upper and lower case version of a proxy value.
 func addProxyValue(build *Build, key string) {
 	value := getProxyValue(key)
 
@@ -308,9 +290,6 @@ func addProxyValue(build *Build, key string) {
 	}
 }
 
-// helper function to get a proxy value from the environment.
-//
-// assumes that the upper and lower case versions of are the same.
 func getProxyValue(key string) string {
 	value := os.Getenv(key)
 
@@ -321,7 +300,6 @@ func getProxyValue(key string) string {
 	return os.Getenv(strings.ToUpper(key))
 }
 
-// helper function that looks to see if a proxy value was set in the build args.
 func hasProxyBuildArg(build *Build, key string) bool {
 	keyUpper := strings.ToUpper(key)
 
@@ -334,37 +312,31 @@ func hasProxyBuildArg(build *Build, key string) bool {
 	return false
 }
 
-// helper function to create the docker tag command.
 func commandTag(build Build, tag string) *exec.Cmd {
 	var (
 		source = build.Name
 		target = fmt.Sprintf("%s:%s", build.Repo, tag)
 	)
-	return exec.Command(buildahExe, "tag", source, target)
+	return exec.Command(buildahExe, "tag", "--storage-driver", "vfs", source, target)
 }
 
-// helper function to create the docker push command.
 func commandPush(build Build, tag string) *exec.Cmd {
 	target := fmt.Sprintf("%s:%s", build.Repo, tag)
-	return exec.Command(buildahExe, "push", target)
+	return exec.Command(buildahExe, "push", "--storage-driver", "vfs", target)
 }
 
-// helper to check if args match "docker prune"
 func isCommandPrune(args []string) bool {
 	return len(args) > 3 && args[2] == "prune"
 }
 
-// helper to check if args match "docker rmi"
 func isCommandRmi(args []string) bool {
 	return len(args) > 2 && args[1] == "rmi"
 }
 
 func commandRmi(tag string) *exec.Cmd {
-	return exec.Command(buildahExe, "rmi", tag)
+	return exec.Command(buildahExe, "rmi", "--storage-driver", "vfs", tag)
 }
 
-// trace writes each command to stdout with the command wrapped in an xml
-// tag so that it can be extracted and displayed in the logs.
 func trace(cmd *exec.Cmd) {
 	fmt.Fprintf(os.Stdout, "+ %s\n", strings.Join(cmd.Args, " "))
 }
