@@ -1,5 +1,8 @@
 FROM quay.io/buildah/stable:v1.36.0
 
+# Install necessary packages
+RUN dnf install -y slirp4netns
+
 # Set up subuid and subgid for rootless operation
 RUN touch /etc/subgid /etc/subuid \
     && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
@@ -9,15 +12,17 @@ RUN touch /etc/subgid /etc/subuid \
 # Use chroot since the default runc does not work when running rootless
 RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 
-# Use VFS since fuse does not work
+# Configure storage to use VFS
 RUN mkdir -p /home/build/.config/containers \
-    && echo "driver=\"vfs\"" > /home/build/.config/containers/storage.conf
+    && echo '[storage]' > /home/build/.config/containers/storage.conf \
+    && echo 'driver = "vfs"' >> /home/build/.config/containers/storage.conf
 
 # Switch to non-root user
 USER build
 WORKDIR /home/build
 
-# Set the storage driver
+# Set environment variables
+ENV BUILDAH_ISOLATION=chroot
 ENV STORAGE_DRIVER=vfs
 
 # Add the plugin binary
