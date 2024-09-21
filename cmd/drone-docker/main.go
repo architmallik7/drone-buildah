@@ -231,8 +231,8 @@ func main() {
 
 func run(c *cli.Context) error {
 	plugin := docker.Plugin{
-		SkipPush: c.Bool("dry-run"),
-		Cleanup:  c.BoolT("docker.purge"),
+		Dryrun:  c.Bool("dry-run"),
+		Cleanup: c.BoolT("docker.purge"),
 		Login: docker.Login{
 			Registry: c.String("docker.registry"),
 			Username: c.String("docker.username"),
