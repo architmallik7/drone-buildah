@@ -1,8 +1,5 @@
 FROM quay.io/buildah/stable:v1.14.8
 
-# Install necessary packages
-RUN dnf install -y fuse-overlayfs slirp4netns
-
 # Set up subuid and subgid for rootless operation
 RUN touch /etc/subgid /etc/subuid \
     && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
@@ -12,20 +9,16 @@ RUN touch /etc/subgid /etc/subuid \
 # Use chroot since the default runc does not work when running rootless
 RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 
-# Configure storage to use overlay with fuse-overlayfs
+# Use VFS since fuse does not work
 RUN mkdir -p /home/build/.config/containers \
-    && echo '[storage]' > /home/build/.config/containers/storage.conf \
-    && echo 'driver = "overlay"' >> /home/build/.config/containers/storage.conf \
-    && echo '[storage.options.overlay]' >> /home/build/.config/containers/storage.conf \
-    && echo 'mount_program = "/usr/bin/fuse-overlayfs"' >> /home/build/.config/containers/storage.conf
+    && echo "driver=\"vfs\"" > /home/build/.config/containers/storage.conf
 
 # Switch to non-root user
 USER build
 WORKDIR /home/build
 
-# Set environment variables
-ENV BUILDAH_ISOLATION=chroot
-ENV STORAGE_DRIVER=overlay
+# Set the storage driver
+ENV STORAGE_DRIVER=vfs
 
 # Add the plugin binary
 ADD release/linux/amd64/drone-docker /bin/
