@@ -35,7 +35,7 @@ type (
 		Target      string   // Docker build target
 		Squash      bool     // Docker build squash
 		Pull        bool     // Docker build pull
-		CacheFrom   []string // Docker build cache-from
+		CacheFrom   []string // Docker build cache-from. It is a NOOP in buildah
 		Compress    bool     // Docker build compress
 		Repo        string   // Docker build repository
 		LabelSchema []string // label-schema Label map
@@ -57,48 +57,32 @@ type (
 
 	// Plugin defines the Docker plugin parameters.
 	Plugin struct {
-		Login    Login // Docker login configuration
-		Build    Build // Docker build configuration
-		SkipPush bool  // Docker push is skipped if true
-		Cleanup  bool  // Docker purge is enabled
+		Login   Login // Docker login configuration
+		Build   Build // Docker build configuration
+		Dryrun  bool  // Docker push is skipped
+		Cleanup bool  // Docker purge is enabled
 	}
 )
 
 // Exec executes the plugin step
 func (p Plugin) Exec() error {
-	// Set up custom storage configuration for rootless mode
-	user, err := user.Current()
-	if err != nil {
-		return fmt.Errorf("error getting current user: %s", err)
-	}
-
-	storageConfDir := filepath.Join(user.HomeDir, ".config", "containers")
-	if err := os.MkdirAll(storageConfDir, 0700); err != nil {
-		return fmt.Errorf("error creating storage config directory: %s", err)
-	}
-
-	storageConfPath := filepath.Join(storageConfDir, "storage.conf")
-	storageConf := `[storage]
-	driver = "vfs"
-	runroot = "/tmp/buildah-run-$(id -u)"
-	graphroot = "/tmp/buildah-graph-$(id -u)"`
-
-	if err := ioutil.WriteFile(storageConfPath, []byte(storageConf), 0600); err != nil {
-		return fmt.Errorf("error writing storage.conf: %s", err)
-	}
-
-	// Set environment variables for rootless mode
-	os.Setenv("STORAGE_DRIVER", "vfs")
-	os.Setenv("BUILDAH_ISOLATION", "rootless")
-	os.Setenv("CONTAINERS_STORAGE_CONF", storageConfPath)
-
 	// Create Auth Config File
 	if p.Login.Config != "" {
-		authPath := filepath.Join(storageConfDir, "auth.json")
-		if err := ioutil.WriteFile(authPath, []byte(p.Login.Config), 0600); err != nil {
-			return fmt.Errorf("error writing auth.json: %s", err)
+		user, err := user.Current()
+		if err != nil {
+			return fmt.Errorf("Error getting the current user: %s", err)
 		}
-		fmt.Printf("Config written to %s\n", authPath)
+		root := fmt.Sprintf("/var/tmp/%s/containers/containers/", user.Uid)
+		if err := os.MkdirAll(root, 0777); err != nil {
+			return fmt.Errorf("Error writing runtime dir: %s", err)
+		}
+
+		path := filepath.Join(root, "auth.json")
+		if err := ioutil.WriteFile(path, []byte(p.Login.Config), 0600); err != nil {
+			return fmt.Errorf("Error writing auth.json: %s", err)
+		}
+
+		fmt.Printf("Config written to %s\n", path)
 	}
 
 	// login to the Docker registry
@@ -108,7 +92,7 @@ func (p Plugin) Exec() error {
 		cmd.Stderr = os.Stderr
 		err := cmd.Run()
 		if err != nil {
-			return fmt.Errorf("error authenticating: %s", err)
+			return fmt.Errorf("Error authenticating: %s", err)
 		}
 	}
 
@@ -125,26 +109,26 @@ func (p Plugin) Exec() error {
 	addProxyBuildArgs(&p.Build)
 
 	var cmds []*exec.Cmd
-	cmds = append(cmds, commandVersion())
-	cmds = append(cmds, commandInfo())
+	cmds = append(cmds, commandVersion()) // docker version
+	cmds = append(cmds, commandInfo())    // docker info
 
 	// pre-pull cache images
 	for _, img := range p.Build.CacheFrom {
 		cmds = append(cmds, commandPull(img))
 	}
 
-	cmds = append(cmds, commandBuild(p.Build))
+	cmds = append(cmds, commandBuild(p.Build)) // docker build
 
 	for _, tag := range p.Build.Tags {
-		cmds = append(cmds, commandTag(p.Build, tag))
+		cmds = append(cmds, commandTag(p.Build, tag)) // docker tag
 
-		if !p.SkipPush {
-			cmds = append(cmds, commandPush(p.Build, tag))
+		if p.Dryrun == false {
+			cmds = append(cmds, commandPush(p.Build, tag)) // docker push
 		}
 	}
 
 	if p.Cleanup {
-		cmds = append(cmds, commandRmi(p.Build.Name))
+		cmds = append(cmds, commandRmi(p.Build.Name)) // buildah rmi
 	}
 
 	// execute all commands in batch mode.
@@ -154,23 +138,25 @@ func (p Plugin) Exec() error {
 		trace(cmd)
 
 		err := cmd.Run()
-		if err != nil {
-			if isCommandPull(cmd.Args) {
-				fmt.Printf("Could not pull cache-from image %s. Ignoring...\n", cmd.Args[2])
-			} else if isCommandPrune(cmd.Args) {
-				fmt.Printf("Could not prune system containers. Ignoring...\n")
-			} else if isCommandRmi(cmd.Args) {
-				fmt.Printf("Could not remove image %s. Ignoring...\n", cmd.Args[2])
-			} else {
-				return err
-			}
+		if err != nil && isCommandPull(cmd.Args) {
+			fmt.Printf("Could not pull cache-from image %s. Ignoring...\n", cmd.Args[2])
+		} else if err != nil && isCommandPrune(cmd.Args) {
+			fmt.Printf("Could not prune system containers. Ignoring...\n")
+		} else if err != nil && isCommandRmi(cmd.Args) {
+			fmt.Printf("Could not remove image %s. Ignoring...\n", cmd.Args[2])
+		} else if err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
+// helper function to create the docker login command.
 func commandLogin(login Login) *exec.Cmd {
+	if login.Email != "" {
+		return commandLoginEmail(login)
+	}
 	return exec.Command(
 		buildahExe, "login",
 		"-u", login.Username,
@@ -179,26 +165,40 @@ func commandLogin(login Login) *exec.Cmd {
 	)
 }
 
+// helper to check if args match "docker pull <image>"
 func isCommandPull(args []string) bool {
 	return len(args) > 2 && args[1] == "pull"
 }
 
 func commandPull(repo string) *exec.Cmd {
-	return exec.Command(buildahExe, "pull", "--storage-driver", "vfs", repo)
+	return exec.Command(buildahExe, "pull", repo)
 }
 
+func commandLoginEmail(login Login) *exec.Cmd {
+	return exec.Command(
+		buildahExe, "login",
+		"-u", login.Username,
+		"-p", login.Password,
+		"-e", login.Email,
+		login.Registry,
+	)
+}
+
+// helper function to create the docker info command.
 func commandVersion() *exec.Cmd {
 	return exec.Command(buildahExe, "version")
 }
 
+// helper function to create the docker info command.
 func commandInfo() *exec.Cmd {
 	return exec.Command(buildahExe, "info")
 }
 
+// helper function to create the docker build command.
 func commandBuild(build Build) *exec.Cmd {
 	args := []string{
 		"bud",
-		"--format", "docker",
+		"--storage-driver", "vfs",
 		"-f", build.Dockerfile,
 	}
 
@@ -286,12 +286,14 @@ func commandBuild(build Build) *exec.Cmd {
 	return exec.Command(buildahExe, args...)
 }
 
+// helper function to add proxy values from the environment
 func addProxyBuildArgs(build *Build) {
 	addProxyValue(build, "http_proxy")
 	addProxyValue(build, "https_proxy")
 	addProxyValue(build, "no_proxy")
 }
 
+// helper function to add the upper and lower case version of a proxy value.
 func addProxyValue(build *Build, key string) {
 	value := getProxyValue(key)
 
@@ -301,6 +303,9 @@ func addProxyValue(build *Build, key string) {
 	}
 }
 
+// helper function to get a proxy value from the environment.
+//
+// assumes that the upper and lower case versions of are the same.
 func getProxyValue(key string) string {
 	value := os.Getenv(key)
 
@@ -311,6 +316,7 @@ func getProxyValue(key string) string {
 	return os.Getenv(strings.ToUpper(key))
 }
 
+// helper function that looks to see if a proxy value was set in the build args.
 func hasProxyBuildArg(build *Build, key string) bool {
 	keyUpper := strings.ToUpper(key)
 
@@ -323,31 +329,39 @@ func hasProxyBuildArg(build *Build, key string) bool {
 	return false
 }
 
+// helper function to create the docker tag command.
 func commandTag(build Build, tag string) *exec.Cmd {
 	var (
 		source = build.Name
 		target = fmt.Sprintf("%s:%s", build.Repo, tag)
 	)
-	return exec.Command(buildahExe, "tag", source, target)
+	return exec.Command(
+		buildahExe, "tag", "--storage-driver", "vfs", source, target,
+	)
 }
 
+// helper function to create the docker push command.
 func commandPush(build Build, tag string) *exec.Cmd {
 	target := fmt.Sprintf("%s:%s", build.Repo, tag)
-	return exec.Command(buildahExe, "push", target)
+	return exec.Command(buildahExe, "push", "--storage-driver", "vfs", target)
 }
 
-func commandRmi(tag string) *exec.Cmd {
-	return exec.Command(buildahExe, "rmi", tag)
-}
-
+// helper to check if args match "docker prune"
 func isCommandPrune(args []string) bool {
 	return len(args) > 3 && args[2] == "prune"
 }
 
+// helper to check if args match "docker rmi"
 func isCommandRmi(args []string) bool {
 	return len(args) > 2 && args[1] == "rmi"
 }
 
+func commandRmi(tag string) *exec.Cmd {
+	return exec.Command(buildahExe, "--storage-driver", "vfs", "rmi", tag)
+}
+
+// trace writes each command to stdout with the command wrapped in an xml
+// tag so that it can be extracted and displayed in the logs.
 func trace(cmd *exec.Cmd) {
 	fmt.Fprintf(os.Stdout, "+ %s\n", strings.Join(cmd.Args, " "))
 }
