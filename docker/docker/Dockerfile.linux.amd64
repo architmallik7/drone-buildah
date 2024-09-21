@@ -1,4 +1,4 @@
-FROM quay.io/buildah/stable:v1.36.0
+FROM quay.io/buildah/stable:v1.14.8
 
 # Install necessary packages
 RUN dnf install -y fuse-overlayfs slirp4netns
