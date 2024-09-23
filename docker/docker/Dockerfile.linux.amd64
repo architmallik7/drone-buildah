@@ -1,4 +1,5 @@
-FROM quay.io/buildah/stable:v1.14.8
+# Start from the latest stable Buildah image
+FROM quay.io/buildah/stable:latest
 
 # Set up subuid and subgid for rootless operation
 RUN touch /etc/subgid /etc/subuid \
@@ -6,12 +7,12 @@ RUN touch /etc/subgid /etc/subuid \
     && echo build:10000:65536 > /etc/subuid \
     && echo build:10000:65536 > /etc/subgid
 
-# Use chroot since the default runc does not work when running rootless
+# Use chroot isolation
 RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 
-# Use VFS since fuse does not work
+# Configure VFS storage driver
 RUN mkdir -p /home/build/.config/containers \
-    && echo "driver=\"vfs\"" > /home/build/.config/containers/storage.conf
+    && echo "driver = \"vfs\"" > /home/build/.config/containers/storage.conf
 
 # Switch to non-root user
 USER build
@@ -20,8 +21,9 @@ WORKDIR /home/build
 # Set the storage driver
 ENV STORAGE_DRIVER=vfs
 
-# Add the plugin binary
-ADD release/linux/amd64/drone-docker /bin/
+# Add your plugin binaries
+COPY --chown=build:build release/linux/amd64/drone-docker /bin/
+COPY --chown=build:build release/linux/amd64/drone-ecr /bin/
 
 # Set the entrypoint to the plugin binary
-ENTRYPOINT ["/bin/drone-docker"]
+ENTRYPOINT ["/bin/drone-ecr"]
