@@ -26,7 +26,7 @@ ENV STORAGE_DRIVER=vfs
 COPY --chown=build:build release/linux/amd64/drone-docker /bin/
 
 # Ensure the binary is executable
-USER root
+USER root1
 RUN chmod +x /bin/drone-docker
 USER build
 
