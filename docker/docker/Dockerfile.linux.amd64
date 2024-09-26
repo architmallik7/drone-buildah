@@ -1,22 +1,40 @@
-FROM quay.io/buildah/stable:v1.36.0
+FROM fedora
 
-# Set up the working directory
+RUN dnf -y install \
+    make \
+    golang \
+    bats \
+    btrfs-progs-devel \
+    device-mapper-devel \
+    glib2-devel \
+    gpgme-devel \
+    libassuan-devel \
+    libseccomp-devel \
+    git \
+    bzip2 \
+    go-md2man \
+    runc \
+    containers-common \
+    skopeo-containers
+
+# Workaround - the first install somehow leaves the golang in a bad state
+RUN dnf -y install golang
+
+RUN mkdir /root/buildah && \
+    cd /root/buildah && \
+    git clone https://github.com/harness/buildah.git ./src/github.com/containers/buildah
+
+RUN cd /root/buildah/src/github.com/containers/buildah && make && sudo make install
+
+
+
+FROM quay.io/buildah/stable:v1.23.0
+
 USER build
 WORKDIR /home/build
-
-# Set STORAGE_DRIVER environment variable for rootless mode
-ENV STORAGE_DRIVER=vfs
-
-# Correctly create the containers.conf file without escape characters
-RUN mkdir -p /home/build/.config/containers && \
-    echo -e "[storage]\ndriver = \"vfs\"\n" > /home/build/.config/containers/containers.conf
-
-# Ensure the build user has access to storage directories
-RUN mkdir -p /home/build/.local/share/containers/storage && \
-    chown -R build:build /home/build/.local/share/containers
-
-# Add the plugin binary
+RUN export STORAGE_DRIVER=vfs
+# Add plugin binary
 ADD release/linux/amd64/drone-docker /bin/
+COPY --from=0 /root/buildah/src/github.com/containers/buildah/bin/. /bin/
 
-# Set the entrypoint to the plugin binary
 ENTRYPOINT ["/bin/drone-docker"]
