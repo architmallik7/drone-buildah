@@ -7,10 +7,7 @@ RUN touch /etc/subgid /etc/subuid \
     && echo build:10000:65536 > /etc/subuid \
     && echo build:10000:65536 > /etc/subgid
 
-# Use chroot isolation
-RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
-
-# Configure VFS storage driver
+# Configure VFS storage driver and other rootless settings
 RUN mkdir -p /home/build/.config/containers \
     && echo "driver = \"vfs\"" > /home/build/.config/containers/storage.conf \
     && chown -R build:build /home/build/.config
@@ -19,16 +16,15 @@ RUN mkdir -p /home/build/.config/containers \
 USER build
 WORKDIR /home/build
 
-# Set the storage driver
+# Set environment variables for rootless operation
 ENV STORAGE_DRIVER=vfs
+ENV BUILDAH_ISOLATION=chroot
+ENV _BUILDAH_STARTED_IN_USERNS=""
+ENV BUILDAH_COMMAND="buildah"
 
-# Add the plugin binary
+# Add the plugin binary and make it executable
 COPY --chown=build:build release/linux/amd64/drone-docker /bin/
-
-# Ensure the binary is executable
-USER root1
 RUN chmod +x /bin/drone-docker
-USER build
 
 # Set the entrypoint to the plugin binary
 ENTRYPOINT ["/bin/drone-docker"]
