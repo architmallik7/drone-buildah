@@ -1,45 +1,22 @@
 FROM quay.io/buildah/stable:v1.36.0
 
-# Set up subuid and subgid for rootless operation
-USER root
-RUN touch /etc/subgid /etc/subuid \
-    && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
-    && echo build:10000:65536 > /etc/subuid \
-    && echo build:10000:65536 > /etc/subgid
-
-# Create necessary directories and set permissions
-RUN mkdir -p /home/build/.local/share/containers/storage \
-    /home/build/.local/share/containers/runtime \
-    /home/build/.local/share/containers/tmp \
-    /home/build/.config/containers \
-    && chown -R build:build /home/build/.local /home/build/.config
-
-# Configure VFS storage driver
-RUN echo '[storage]' > /home/build/.config/containers/storage.conf \
-    && echo 'driver = "vfs"' >> /home/build/.config/containers/storage.conf \
-    && echo '[storage.options]' >> /home/build/.config/containers/storage.conf \
-    && echo 'vfs.imagestore = ["/home/build/.local/share/containers/storage"]' >> /home/build/.config/containers/storage.conf \
-    && chown build:build /home/build/.config/containers/storage.conf
-
-# Switch to non-root user and set up the working directory
+# Set up the working directory
 USER build
 WORKDIR /home/build
 
-# Set environment variables for rootless operation
+# Set STORAGE_DRIVER environment variable for rootless mode
 ENV STORAGE_DRIVER=vfs
-ENV BUILDAH_ISOLATION=chroot
-ENV _BUILDAH_STARTED_IN_USERNS=""
-ENV BUILDAH_COMMAND="buildah"
-ENV XDG_RUNTIME_DIR="/home/build/.local/share/containers/runtime"
-ENV TMPDIR="/home/build/.local/share/containers/tmp"
+
+# Create containers.conf file to set the storage driver to vfs
+RUN mkdir -p /home/build/.config/containers && \
+    echo "[storage]\ndriver = \"vfs\"" > /home/build/.config/containers/containers.conf
+
+# Ensure the build user has access to storage directories
+RUN mkdir -p /home/build/.local/share/containers/storage && \
+    chown -R build:build /home/build/.local/share/containers
 
 # Add the plugin binary
-COPY --chown=build:build release/linux/amd64/drone-docker /bin/
-RUN chmod +x /bin/drone-docker
+ADD release/linux/amd64/drone-docker /bin/
 
-# Add a debug script
-COPY --chown=build:build debug.sh /home/build/debug.sh
-RUN chmod +x /home/build/debug.sh
-
-# Set the entrypoint to run the debug script before the main binary
-ENTRYPOINT ["/bin/sh", "-c", "/home/build/debug.sh && /bin/drone-docker"]
+# Set the entrypoint to the plugin binary
+ENTRYPOINT ["/bin/drone-docker"]
