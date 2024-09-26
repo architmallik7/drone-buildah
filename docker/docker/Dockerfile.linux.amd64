@@ -7,9 +7,9 @@ WORKDIR /home/build
 # Set STORAGE_DRIVER environment variable for rootless mode
 ENV STORAGE_DRIVER=vfs
 
-# Create containers.conf file to set the storage driver to vfs
+# Correctly create the containers.conf file without escape characters
 RUN mkdir -p /home/build/.config/containers && \
-    echo "[storage]\ndriver = \"vfs\"" > /home/build/.config/containers/containers.conf
+    echo -e "[storage]\ndriver = \"vfs\"\n" > /home/build/.config/containers/containers.conf
 
 # Ensure the build user has access to storage directories
 RUN mkdir -p /home/build/.local/share/containers/storage && \
