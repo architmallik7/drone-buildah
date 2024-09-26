@@ -37,5 +37,9 @@ ENV TMPDIR="/home/build/.local/share/containers/tmp"
 COPY --chown=build:build release/linux/amd64/drone-docker /bin/
 RUN chmod +x /bin/drone-docker
 
-# Set the entrypoint to the plugin binary
-ENTRYPOINT ["/bin/drone-docker"]
+# Add a debug script
+COPY --chown=build:build debug.sh /home/build/debug.sh
+RUN chmod +x /home/build/debug.sh
+
+# Set the entrypoint to run the debug script before the main binary
+ENTRYPOINT ["/bin/sh", "-c", "/home/build/debug.sh && /bin/drone-docker"]
