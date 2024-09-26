@@ -1,4 +1,8 @@
-FROM fedora
+# Stage 1: Build the Buildah binary
+FROM quay.io/buildah/stable:v1.23.0 AS build
+
+USER root
+WORKDIR /root/buildah
 
 RUN dnf -y install \
     make \
@@ -17,24 +21,22 @@ RUN dnf -y install \
     containers-common \
     skopeo-containers
 
-# Workaround - the first install somehow leaves the golang in a bad state
-RUN dnf -y install golang
+# Clone the specific Buildah source code and build
+RUN git clone https://github.com/harness/buildah.git ./src/github.com/containers/buildah && \
+    cd ./src/github.com/containers/buildah && \
+    make && make install
 
-RUN mkdir /root/buildah && \
-    cd /root/buildah && \
-    git clone https://github.com/harness/buildah.git ./src/github.com/containers/buildah
-
-RUN cd /root/buildah/src/github.com/containers/buildah && make && sudo make install
-
-
-
+# Stage 2: Prepare final image with the buildah binary and dependencies
 FROM quay.io/buildah/stable:v1.23.0
 
 USER build
 WORKDIR /home/build
 RUN export STORAGE_DRIVER=vfs
-# Add plugin binary
+
+# Copy the built binaries from the build stage
+COPY --from=build /root/buildah/src/github.com/containers/buildah/bin/. /bin/
+
+# Add the drone-docker plugin binary
 ADD release/linux/amd64/drone-docker /bin/
-COPY --from=0 /root/buildah/src/github.com/containers/buildah/bin/. /bin/
 
 ENTRYPOINT ["/bin/drone-docker"]
