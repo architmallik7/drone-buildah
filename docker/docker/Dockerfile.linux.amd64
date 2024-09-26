@@ -7,12 +7,15 @@ RUN touch /etc/subgid /etc/subuid \
     && echo build:10000:65536 > /etc/subuid \
     && echo build:10000:65536 > /etc/subgid
 
-# Configure VFS storage driver and other rootless settings
+# Configure VFS storage driver
 RUN mkdir -p /home/build/.config/containers \
-    && echo "driver = \"vfs\"" > /home/build/.config/containers/storage.conf \
+    && echo '[storage]' > /home/build/.config/containers/storage.conf \
+    && echo 'driver = "vfs"' >> /home/build/.config/containers/storage.conf \
+    && echo '[storage.options]' >> /home/build/.config/containers/storage.conf \
+    && echo 'vfs.imagestore = ["/home/build/.local/share/containers/storage"]' >> /home/build/.config/containers/storage.conf \
     && chown -R build:build /home/build/.config
 
-# Switch to non-root user
+# Switch to non-root user and set up the working directory
 USER build
 WORKDIR /home/build
 
@@ -21,8 +24,13 @@ ENV STORAGE_DRIVER=vfs
 ENV BUILDAH_ISOLATION=chroot
 ENV _BUILDAH_STARTED_IN_USERNS=""
 ENV BUILDAH_COMMAND="buildah"
+ENV XDG_RUNTIME_DIR="/home/build/.local/share/containers/runtime"
+ENV TMPDIR="/home/build/.local/share/containers/tmp"
 
-# Add the plugin binary and make it executable
+# Create necessary directories
+RUN mkdir -p ${XDG_RUNTIME_DIR} ${TMPDIR}
+
+# Add the plugin binary
 COPY --chown=build:build release/linux/amd64/drone-docker /bin/
 RUN chmod +x /bin/drone-docker
 
