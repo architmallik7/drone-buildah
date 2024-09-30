@@ -7,16 +7,25 @@ RUN touch /etc/subgid /etc/subuid \
  && echo build:10000:65536 > /etc/subuid \
  && echo build:10000:65536 > /etc/subgid
 
-# Use chroot isolation
+# Use chroot isolation and configure storage driver to use VFS
 RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 
-# Configure storage driver to use VFS
+# Configure storage driver explicitly for Buildah
 RUN mkdir -p /home/build/.config/containers \
- && echo "driver = \"vfs\"" > /home/build/.config/containers/storage.conf
+ && echo "[storage]\ndriver = \"vfs\"" > /home/build/.config/containers/storage.conf
+
+# Set the storage driver environment variable to VFS
+ENV STORAGE_DRIVER=vfs
+
+# Set appropriate permissions for the config directory
+RUN chmod -R 755 /home/build/.config/containers
 
 # Switch to non-root user
 USER build
 WORKDIR /home/build
+
+# Debug step: Verify storage configuration
+RUN cat /home/build/.config/containers/storage.conf
 
 # Add drone-docker plugin binary
 ADD release/linux/amd64/drone-docker /bin/
