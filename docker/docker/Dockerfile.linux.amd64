@@ -1,9 +1,15 @@
-# Stage 1: Build the Buildah binary
-FROM quay.io/buildah/stable:v1.23.0 AS build
+# Use a single stage build to simplify the process
+FROM quay.io/buildah/stable:v1.23.0
 
+# Set environment variables
+ENV STORAGE_DRIVER=vfs \
+    BUILDAH_ISOLATION=chroot
+
+# Run as root to avoid permission issues
 USER root
-WORKDIR /root/buildah
+WORKDIR /home/build
 
+# Install necessary dependencies
 RUN dnf -y install \
     make \
     golang \
@@ -19,29 +25,29 @@ RUN dnf -y install \
     go-md2man \
     runc \
     containers-common \
-    skopeo-containers
+    skopeo-containers \
+    fuse-overlayfs \
+    slirp4netns
 
-# Clone the specific Buildah source code and build
-RUN git clone https://github.com/harness/buildah.git ./src/github.com/containers/buildah && \
-    cd ./src/github.com/containers/buildah && \
-    make && make install
+# Clone and build the specific Buildah version
+RUN git clone https://github.com/harness/buildah.git /tmp/buildah && \
+    cd /tmp/buildah && \
+    make && make install && \
+    cd / && rm -rf /tmp/buildah
 
-# Stage 2: Prepare final image with the buildah binary and dependencies
-FROM quay.io/buildah/stable:v1.23.0
+# Copy the drone-docker plugin binary
+COPY release/linux/amd64/drone-docker /bin/
 
-# Run as root to avoid permission issues
-USER root
-WORKDIR /home/build
-# Use vfs storage driver for non-privileged users
-ENV STORAGE_DRIVER=vfs
+# Ensure correct permissions
+RUN chmod +x /bin/drone-docker
 
-# Copy the built binaries from the build stage
-COPY --from=build /root/buildah/src/github.com/containers/buildah/bin/. /bin/
+# Create necessary directories and set permissions
+RUN mkdir -p /var/tmp/containers-user-1000 && \
+    chmod 777 /var/tmp/containers-user-1000
 
-# Add the drone-docker plugin binary
-ADD release/linux/amd64/drone-docker /bin/
+# Set up Buildah configuration
+RUN mkdir -p /etc/containers && \
+    echo -e "[storage]\ndriver = \"vfs\"" > /etc/containers/storage.conf
 
-# Set up Buildah to use rootless mode
-ENV BUILDAH_ISOLATION chroot
-
+# Set the entrypoint
 ENTRYPOINT ["/bin/drone-docker"]
