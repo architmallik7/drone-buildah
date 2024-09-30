@@ -29,14 +29,19 @@ RUN git clone https://github.com/harness/buildah.git ./src/github.com/containers
 # Stage 2: Prepare final image with the buildah binary and dependencies
 FROM quay.io/buildah/stable:v1.23.0
 
-USER build
+# Run as root to avoid permission issues
+USER root
 WORKDIR /home/build
-RUN export STORAGE_DRIVER=vfs
+# Use vfs storage driver for non-privileged users
+ENV STORAGE_DRIVER=vfs
 
 # Copy the built binaries from the build stage
 COPY --from=build /root/buildah/src/github.com/containers/buildah/bin/. /bin/
 
 # Add the drone-docker plugin binary
 ADD release/linux/amd64/drone-docker /bin/
+
+# Set up Buildah to use rootless mode
+ENV BUILDAH_ISOLATION chroot
 
 ENTRYPOINT ["/bin/drone-docker"]
