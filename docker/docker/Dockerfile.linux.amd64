@@ -12,7 +12,7 @@ RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 
 # Configure storage driver explicitly for Buildah
 RUN mkdir -p /home/build/.config/containers \
- && echo "[storage]\ndriver = \"vfs\"" > /home/build/.config/containers/storage.conf
+ && echo -e "[storage]\ndriver = \"vfs\"\n" > /home/build/.config/containers/storage.conf
 
 # Set the storage driver environment variable to VFS
 ENV STORAGE_DRIVER=vfs
