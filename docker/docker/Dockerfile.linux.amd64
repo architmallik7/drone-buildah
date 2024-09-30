@@ -1,55 +1,25 @@
-# Use a single stage build to simplify the process
+# Use a stable version of Buildah as the base image
 FROM quay.io/buildah/stable:v1.23.0
 
-# Set environment variables
-ENV STORAGE_DRIVER=vfs \
-    BUILDAH_ISOLATION=chroot \
-    BUILDAH_STORAGE_DRIVER=vfs \
-    BUILDAH_STORAGE_PATH=/tmp/buildah-storage
+# Set up subuid and subgid for rootless mode
+RUN touch /etc/subgid /etc/subuid \
+ && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
+ && echo build:10000:65536 > /etc/subuid \
+ && echo build:10000:65536 > /etc/subgid
 
-# Run as root to avoid permission issues
-USER root
+# Use chroot isolation
+RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
+
+# Configure storage driver to use VFS
+RUN mkdir -p /home/build/.config/containers \
+ && echo "driver = \"vfs\"" > /home/build/.config/containers/storage.conf
+
+# Switch to non-root user
+USER build
 WORKDIR /home/build
 
-# Install necessary dependencies
-RUN dnf -y install \
-    make \
-    golang \
-    bats \
-    btrfs-progs-devel \
-    device-mapper-devel \
-    glib2-devel \
-    gpgme-devel \
-    libassuan-devel \
-    libseccomp-devel \
-    git \
-    bzip2 \
-    go-md2man \
-    runc \
-    containers-common \
-    skopeo-containers \
-    fuse-overlayfs \
-    slirp4netns
+# Add drone-docker plugin binary
+ADD release/linux/amd64/drone-docker /bin/
 
-# Clone and build the specific Buildah version
-RUN git clone https://github.com/harness/buildah.git /tmp/buildah && \
-    cd /tmp/buildah && \
-    make && make install && \
-    cd / && rm -rf /tmp/buildah
-
-# Copy the drone-docker plugin binary
-COPY release/linux/amd64/drone-docker /bin/
-
-# Ensure correct permissions
-RUN chmod +x /bin/drone-docker
-
-# Create necessary directories and set permissions
-RUN mkdir -p /tmp/buildah-storage && \
-    chmod 777 /tmp/buildah-storage
-
-# Set up Buildah configuration
-RUN mkdir -p /etc/containers && \
-    echo -e "[storage]\ndriver = \"vfs\"\nrootless_storage_path = \"/tmp/buildah-storage\"" > /etc/containers/storage.conf
-
-# Set the entrypoint
+# Set the entrypoint to the drone-docker plugin
 ENTRYPOINT ["/bin/drone-docker"]
