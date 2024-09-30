@@ -3,7 +3,9 @@ FROM quay.io/buildah/stable:v1.23.0
 
 # Set environment variables
 ENV STORAGE_DRIVER=vfs \
-    BUILDAH_ISOLATION=chroot
+    BUILDAH_ISOLATION=chroot \
+    BUILDAH_STORAGE_DRIVER=vfs \
+    BUILDAH_STORAGE_PATH=/tmp/buildah-storage
 
 # Run as root to avoid permission issues
 USER root
@@ -42,12 +44,12 @@ COPY release/linux/amd64/drone-docker /bin/
 RUN chmod +x /bin/drone-docker
 
 # Create necessary directories and set permissions
-RUN mkdir -p /var/tmp/containers-user-1000 && \
-    chmod 777 /var/tmp/containers-user-1000
+RUN mkdir -p /tmp/buildah-storage && \
+    chmod 777 /tmp/buildah-storage
 
 # Set up Buildah configuration
 RUN mkdir -p /etc/containers && \
-    echo -e "[storage]\ndriver = \"vfs\"" > /etc/containers/storage.conf
+    echo -e "[storage]\ndriver = \"vfs\"\nrootless_storage_path = \"/tmp/buildah-storage\"" > /etc/containers/storage.conf
 
 # Set the entrypoint
 ENTRYPOINT ["/bin/drone-docker"]
