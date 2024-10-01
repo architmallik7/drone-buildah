@@ -7,20 +7,18 @@ RUN touch /etc/subgid /etc/subuid \
  && echo build:10000:65536 > /etc/subuid \
  && echo build:10000:65536 > /etc/subgid
 
-# Use chroot isolation and configure storage driver to use VFS
+# Use chroot isolation and configure storage driver to use fuse-overlayfs
 RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 
-# Configure storage driver explicitly for Buildah
+# Create the storage.conf file with proper fuse-overlayfs configuration
 RUN mkdir -p /home/build/.config/containers \
- && echo -e "[storage]\ndriver = \"vfs\"\n" > /home/build/.config/containers/storage.conf
+ && echo -e "[storage]\ndriver = \"overlay\"\n[storage.options]\nmount_program = \"/usr/bin/fuse-overlayfs\"\n" > /home/build/.config/containers/storage.conf
 
-# Set the storage driver environment variable to VFS
-ENV STORAGE_DRIVER=vfs
+# Install fuse-overlayfs (needed for rootless overlay support)
+USER root
+RUN microdnf install fuse-overlayfs
 
-# Set appropriate permissions for the config directory
-RUN chmod -R 755 /home/build/.config/containers
-
-# Switch to non-root user
+# Switch back to non-root user
 USER build
 WORKDIR /home/build
 
