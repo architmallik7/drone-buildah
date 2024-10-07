@@ -1,22 +1,35 @@
 # Use a stable version of Buildah as the base image
 FROM quay.io/buildah/stable:v1.23.1
 
+# Switch to root to set up the environment
+USER root
+
+# Install necessary tools
+RUN dnf install -y fuse-overlayfs shadow-utils && dnf clean all
+
 # Set up subuid and subgid for rootless mode
-RUN touch /etc/subgid /etc/subuid \
- && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
- && echo build:10000:65536 > /etc/subuid \
- && echo build:10000:65536 > /etc/subgid
+RUN touch /etc/subuid /etc/subgid && \
+    chmod 644 /etc/subuid /etc/subgid && \
+    echo "build:100000:65536" >> /etc/subuid && \
+    echo "build:100000:65536" >> /etc/subgid
 
 # Use chroot isolation
 RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 
 # Configure storage driver to use VFS
-RUN mkdir -p /home/build/.config/containers \
- && echo -e "[storage]\ndriver = \"vfs\"" > /home/build/.config/containers/storage.conf
+RUN mkdir -p /home/build/.config/containers && \
+    echo -e "[storage]\ndriver = \"vfs\"" > /home/build/.config/containers/storage.conf
+
+# Make sure the build user owns its home directory and config
+RUN chown -R build:build /home/build
 
 # Switch to the build user
 USER build
 WORKDIR /home/build
+
+# Set environment variables for rootless mode
+ENV BUILDAH_ISOLATION=chroot
+ENV STORAGE_DRIVER=vfs
 
 # Add the drone-docker plugin binary
 COPY --chown=build:build release/linux/amd64/drone-docker /home/build/
