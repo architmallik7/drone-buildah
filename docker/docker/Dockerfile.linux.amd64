@@ -1,4 +1,4 @@
-# Use the Buildah stable image that supports rootless mode
+# Use the Buildah stable image
 FROM quay.io/buildah/stable:v1.36.0
 
 # Set the working directory and switch to the existing non-root user (usually "build")
@@ -8,6 +8,16 @@ WORKDIR /home/build
 # Set environment variables for rootless Buildah
 ENV STORAGE_DRIVER=vfs
 ENV _CONTAINERS_USERNS_CONFIGURED=""
+ENV BUILDAH_ISOLATION=chroot
+
+# Set rootless storage paths to the user's home directory
+ENV XDG_RUNTIME_DIR=/home/build/.local/share/containers
+ENV BUILDAH_STORAGE_CONF=/home/build/.config/containers/storage.conf
+
+# Create necessary directories with correct permissions
+RUN mkdir -p /home/build/.local/share/containers && \
+    mkdir -p /home/build/.config/containers && \
+    chmod -R 755 /home/build/.local /home/build/.config
 
 # Copy the drone-docker binary and set correct permissions for the existing user
 COPY --chown=build:build release/linux/amd64/drone-docker /home/build/
