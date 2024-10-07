@@ -1,35 +1,28 @@
 # Use a stable version of Buildah as the base image
-FROM quay.io/buildah/stable:v1.36.0
-
-# Switch to root to install necessary packages
-USER root
-
-# Install fuse-overlayfs and shadow-utils (for useradd)
-RUN dnf install -y fuse-overlayfs shadow-utils && dnf clean all
-
-# Create a non-root user with a dynamic UID
-RUN useradd -m builduser
+FROM quay.io/buildah/stable:v1.23.1
 
 # Set up subuid and subgid for rootless mode
-RUN touch /etc/subuid /etc/subgid && \
-    chmod 644 /etc/subuid /etc/subgid && \
-    echo "builduser:100000:65536" >> /etc/subuid && \
-    echo "builduser:100000:65536" >> /etc/subgid
+RUN touch /etc/subgid /etc/subuid \
+ && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
+ && echo build:10000:65536 > /etc/subuid \
+ && echo build:10000:65536 > /etc/subgid
 
-# Switch to the non-root user
-USER builduser
-WORKDIR /home/builduser
+# Use chroot isolation
+RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 
-# Configure buildah to use fuse-overlayfs
-RUN mkdir -p ~/.config/containers && \
-    echo -e "[storage]\ndriver = \"overlay\"\n\n[storage.options]\nmount_program = \"/usr/bin/fuse-overlayfs\"" > ~/.config/containers/storage.conf
+# Configure storage driver to use VFS
+RUN mkdir -p /home/build/.config/containers \
+ && echo -e "[storage]\ndriver = \"vfs\"" > /home/build/.config/containers/storage.conf
 
-# Set environment variables for rootless mode
-ENV BUILDAH_ISOLATION=rootless
-ENV STORAGE_DRIVER=overlay
+# Switch to the build user
+USER build
+WORKDIR /home/build
 
-# Add the plugin binary
-COPY --chown=builduser:builduser release/linux/amd64/drone-docker /home/builduser/
+# Add the drone-docker plugin binary
+COPY --chown=build:build release/linux/amd64/drone-docker /home/build/
 
-# Set the entrypoint to the plugin binary
-ENTRYPOINT ["/home/builduser/drone-docker"]
+# Make sure the binary is executable
+RUN chmod +x /home/build/drone-docker
+
+# Set the entrypoint to the drone-docker plugin
+ENTRYPOINT ["/home/build/drone-docker"]
