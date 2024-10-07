@@ -1,32 +1,35 @@
 # Use a stable version of Buildah as the base image
-FROM quay.io/buildah/stable:v1.23.0
+FROM quay.io/buildah/stable:v1.36.0
+
+# Switch to root to install necessary packages
+USER root
+
+# Install fuse-overlayfs and shadow-utils (for useradd)
+RUN dnf install -y fuse-overlayfs shadow-utils && dnf clean all
+
+# Create a non-root user
+RUN useradd -u 1000 -m builduser
 
 # Set up subuid and subgid for rootless mode
-RUN touch /etc/subgid /etc/subuid \
- && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
- && echo build:10000:65536 > /etc/subuid \
- && echo build:10000:65536 > /etc/subgid
+RUN touch /etc/subuid /etc/subgid && \
+    chmod 644 /etc/subuid /etc/subgid && \
+    echo "builduser:100000:65536" >> /etc/subuid && \
+    echo "builduser:100000:65536" >> /etc/subgid
 
-# Use chroot isolation and configure storage driver to use fuse-overlayfs
-RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
+# Switch to the non-root user
+USER builduser
+WORKDIR /home/builduser
 
-# Create the storage.conf file with proper fuse-overlayfs configuration
-RUN mkdir -p /home/build/.config/containers \
- && echo -e "[storage]\ndriver = \"overlay\"\n[storage.options]\nmount_program = \"/usr/bin/fuse-overlayfs\"\n" > /home/build/.config/containers/storage.conf
+# Configure buildah to use fuse-overlayfs
+RUN mkdir -p ~/.config/containers && \
+    echo -e "[storage]\ndriver = \"overlay\"\n\n[storage.options]\nmount_program = \"/usr/bin/fuse-overlayfs\"" > ~/.config/containers/storage.conf
 
-# Install fuse-overlayfs (needed for rootless overlay support)
-USER root
-RUN microdnf install fuse-overlayfs
+# Set environment variables for rootless mode
+ENV BUILDAH_ISOLATION=rootless
+ENV STORAGE_DRIVER=overlay
 
-# Switch back to non-root user
-USER build
-WORKDIR /home/build
+# Add the plugin binary
+COPY --chown=builduser:builduser release/linux/amd64/drone-docker /home/builduser/
 
-# Debug step: Verify storage configuration
-RUN cat /home/build/.config/containers/storage.conf
-
-# Add drone-docker plugin binary
-ADD release/linux/amd64/drone-docker /bin/
-
-# Set the entrypoint to the drone-docker plugin
-ENTRYPOINT ["/bin/drone-docker"]
+# Set the entrypoint to the plugin binary
+ENTRYPOINT ["/home/builduser/drone-docker"]
