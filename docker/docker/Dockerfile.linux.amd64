@@ -13,6 +13,9 @@ RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 RUN mkdir -p /home/build/.config/containers \
  && echo "driver=\"vfs\"" > /home/build/.config/containers/storage.conf
 
+USER build
+WORKDIR /home/build
+
 ADD release/linux/amd64/drone-docker /bin/
 
 # Set the entrypoint to the plugin binary
