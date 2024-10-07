@@ -1,22 +1,20 @@
-# Start with a Buildah base image that supports rootless operations
+# Use the Buildah stable image that supports rootless mode
 FROM quay.io/buildah/stable:v1.36.0
 
-# Create a non-root user with a specific UID
+# Create a non-root user with UID 1000 if not already present
 RUN useradd -m -u 1000 droneuser
 
-# Switch to the non-root user
-USER droneuser
-
-# Set the working directory
+# Set the working directory and switch to the non-root user
+USER 1000
 WORKDIR /home/droneuser
 
-# Export the necessary environment variables for rootless Buildah
+# Set environment variables for rootless Buildah
 ENV STORAGE_DRIVER=vfs
 ENV _CONTAINERS_USERNS_CONFIGURED=""
 
-# Copy the drone-docker binary and set the correct permissions
+# Copy the drone-docker binary to the user home directory and ensure permissions
 COPY --chown=droneuser:droneuser release/linux/amd64/drone-docker /home/droneuser/
 RUN chmod +x /home/droneuser/drone-docker
 
-# Set the entrypoint to the drone-docker plugin
+# Set the entrypoint to the plugin binary
 ENTRYPOINT ["/home/droneuser/drone-docker"]
