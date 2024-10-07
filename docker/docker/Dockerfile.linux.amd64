@@ -1,5 +1,5 @@
 # Use the Buildah stable image
-FROM quay.io/buildah/stable:v1.36.0
+FROM quay.io/buildah/stable:v1.32.2
 
 # Set the working directory and switch to the existing non-root user (usually "build")
 USER build
