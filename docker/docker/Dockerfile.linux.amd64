@@ -1,14 +1,15 @@
 # Use the Buildah stable image
-FROM quay.io/buildah/stable:v1.32.2
+FROM quay.io/buildah/stable:v1.33
 
 # Set the working directory and switch to the existing non-root user (usually "build")
 USER build
 WORKDIR /home/build
 
 # Set environment variables for rootless Buildah
-ENV STORAGE_DRIVER=vfs
+ENV STORAGE_DRIVER=overlay
 ENV _CONTAINERS_USERNS_CONFIGURED=""
-ENV BUILDAH_ISOLATION=chroot
+ENV BUILDAH_ISOLATION=rootless
+
 
 # Set rootless storage paths to the user's home directory
 ENV XDG_RUNTIME_DIR=/home/build/.local/share/containers
