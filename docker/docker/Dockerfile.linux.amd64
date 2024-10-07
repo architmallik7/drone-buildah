@@ -7,8 +7,8 @@ USER root
 # Install fuse-overlayfs and shadow-utils (for useradd)
 RUN dnf install -y fuse-overlayfs shadow-utils && dnf clean all
 
-# Create a non-root user
-RUN useradd -u 1000 -m builduser
+# Create a non-root user with a dynamic UID
+RUN useradd -m builduser
 
 # Set up subuid and subgid for rootless mode
 RUN touch /etc/subuid /etc/subgid && \
