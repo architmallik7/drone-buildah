@@ -1,22 +1,24 @@
 # Use the Buildah stable image
 FROM quay.io/buildah/stable:v1.33
 
+# Configure subuid and subgid for user namespace mapping
 RUN touch /etc/subgid /etc/subuid \
- && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
- && echo build:10000:65536 > /etc/subuid \
- && echo build:10000:65536 > /etc/subgid
+    && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
+    && echo build:10000:65536 > /etc/subuid \
+    && echo build:10000:65536 > /etc/subgid
 
-# Use chroot since the default runc does not work when running rootless
+# Configure isolation and storage options
 RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
 
-# Use VFS since fuse does not work
+# Set VFS storage driver since fuse does not work in non-privileged mode
 RUN mkdir -p /home/build/.config/containers \
- && echo "driver=\"vfs\"" > /home/build/.config/containers/storage.conf
+    && echo "driver=\"vfs\"" > /home/build/.config/containers/storage.conf
 
+# Ensure the binary exists and is accessible
+COPY --chown=build:build release/linux/amd64/drone-docker /home/build/drone-docker
+RUN chmod +x /home/build/drone-docker
+
+# Use the correct entrypoint
 USER build
 WORKDIR /home/build
-
-ADD release/linux/amd64/drone-docker /bin/
-
-# Set the entrypoint to the plugin binary
 ENTRYPOINT ["/home/build/drone-docker"]
