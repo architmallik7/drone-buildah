@@ -1,24 +1,26 @@
 # Use the Buildah stable image
 FROM quay.io/buildah/stable:v1.33
 
-# Configure subuid and subgid for user namespace mapping
-RUN touch /etc/subgid /etc/subuid \
-    && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
-    && echo build:10000:65536 > /etc/subuid \
-    && echo build:10000:65536 > /etc/subgid
+# Set the correct environment variables for rootless Buildah
+ENV STORAGE_DRIVER=vfs
+ENV BUILDAH_ISOLATION=chroot
+ENV BUILDAH_ISOLATION=rootless
+ENV BUILDAH_STORAGE_CONF=/home/build/.config/containers/storage.conf
 
-# Configure isolation and storage options
-RUN echo "export BUILDAH_ISOLATION=chroot" >> /home/build/.bashrc
+# Create the storage configuration file manually
+RUN mkdir -p /home/build/.config/containers && \
+    echo '[storage]' > /home/build/.config/containers/storage.conf && \
+    echo 'driver = "vfs"' >> /home/build/.config/containers/storage.conf
 
-# Set VFS storage driver since fuse does not work in non-privileged mode
-RUN mkdir -p /home/build/.config/containers \
-    && echo "driver=\"vfs\"" > /home/build/.config/containers/storage.conf
+# Ensure that rootless storage directories exist and have correct permissions
+RUN mkdir -p /home/build/.local/share/containers && \
+    chmod -R 755 /home/build/.local /home/build/.config
 
-# Ensure the binary exists and is accessible
+# Copy the drone-docker binary and set execute permissions
 COPY --chown=build:build release/linux/amd64/drone-docker /home/build/drone-docker
 RUN chmod +x /home/build/drone-docker
 
-# Use the correct entrypoint
+# Switch to the non-root user "build"
 USER build
 WORKDIR /home/build
 ENTRYPOINT ["/home/build/drone-docker"]
