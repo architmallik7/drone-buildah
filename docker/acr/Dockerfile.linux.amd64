@@ -1,6 +1,6 @@
 # Source for dockerfile:
 # https://github.com/containers/buildah/blob/master/docs/tutorials/05-openshift-rootless-bud.md
-FROM quay.io/buildah/stable:v1.14.8
+FROM quay.io/buildah/stable:v1.33
 
 RUN touch /etc/subgid /etc/subuid \
  && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
