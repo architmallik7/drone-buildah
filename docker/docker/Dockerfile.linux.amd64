@@ -1,26 +1,32 @@
-# Use the Buildah stable image
-FROM quay.io/buildah/stable:v1.33
+# Use Podman stable image as the base
+FROM quay.io/podman/stable:latest
 
-# Set the correct environment variables for rootless Buildah
+# Set the environment variables for rootless Buildah
 ENV STORAGE_DRIVER=vfs
 ENV BUILDAH_ISOLATION=chroot
 ENV BUILDAH_ISOLATION=rootless
 ENV BUILDAH_STORAGE_CONF=/home/build/.config/containers/storage.conf
 
-# Create the storage configuration file manually
-RUN mkdir -p /home/build/.config/containers && \
+# Install Buildah and other necessary tools
+RUN dnf install -y buildah fuse-overlayfs slirp4netns && \
+    mkdir -p /home/build/.config/containers && \
     echo '[storage]' > /home/build/.config/containers/storage.conf && \
     echo 'driver = "vfs"' >> /home/build/.config/containers/storage.conf
 
-# Ensure that rootless storage directories exist and have correct permissions
+# Ensure rootless storage directories exist and have the correct permissions
 RUN mkdir -p /home/build/.local/share/containers && \
     chmod -R 755 /home/build/.local /home/build/.config
 
-# Copy the drone-docker binary and set execute permissions
-COPY --chown=build:build release/linux/amd64/drone-docker /home/build/drone-docker
-RUN chmod +x /home/build/drone-docker
+# Install Drone Buildah plugin dependencies
+RUN dnf install -y git curl
 
-# Switch to the non-root user "build"
+# Copy the drone-buildah binary and set correct permissions
+COPY --chown=build:build release/linux/amd64/drone-buildah /home/build/drone-buildah
+RUN chmod +x /home/build/drone-buildah
+
+# Switch to non-root user
 USER build
 WORKDIR /home/build
-ENTRYPOINT ["/home/build/drone-docker"]
+
+# Set entrypoint to drone-buildah
+ENTRYPOINT ["/home/build/drone-buildah"]
